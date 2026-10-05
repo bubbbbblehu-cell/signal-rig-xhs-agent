@@ -1,5 +1,7 @@
 node_modules/
 dist/
-logs/
+.sites-runtime/
 .DS_Store
-.env
+
+qa/
+docs/preview.jpg

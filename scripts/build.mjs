@@ -1,0 +1,10 @@
+import {build} from 'esbuild';
+import {readFileSync,writeFileSync,mkdirSync,copyFileSync,rmSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+rmSync('dist',{recursive:true,force:true});mkdirSync('dist');
+execFileSync('python3',['scripts/extract-rig.py'],{stdio:'inherit'});
+await build({entryPoints:['app/main.js'],bundle:true,minify:true,format:'iife',target:['chrome61','safari12'],outfile:'dist/app.js',legalComments:'eof'});
+const scripts=JSON.parse(readFileSync('dist/rig-scripts.json','utf8'));
+writeFileSync('dist/index.html',readFileSync('app/index.html','utf8').replace('<!-- RIG_SCRIPTS -->',scripts.map(s=>`<script src="./${s}"></script>`).join('\n')));
+rmSync('dist/rig-scripts.json');copyFileSync('app/style.css','dist/style.css');
+console.log('Offline build ready in dist/');

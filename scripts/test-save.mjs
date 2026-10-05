@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {saveImage} from '../app/save-image.js';
+const data='data:image/png;base64,dGVzdA==';
+assert.deepEqual(await saveImage(data),{saved:false,reason:'browser'});
+let calls=[];
+assert.deepEqual(await saveImage(data,{writeTempFile:async args=>{calls.push(['write',args]);return {filePath:'/tmp/signal.png'};},saveImageToPhotosAlbum:async args=>{calls.push(['save',args]);}}),{saved:true});
+assert.deepEqual(calls,[['write',{data}],['save',{filePath:'/tmp/signal.png'}]]);
+calls=[];await saveImage(data,{saveImageToPhotosAlbum:async args=>calls.push(args)});assert.deepEqual(calls,[{filePath:data}]);
+await assert.rejects(saveImage(data,{writeTempFile:async()=>({}),saveImageToPhotosAlbum:async()=>assert.fail('Must not save invalid path')}));
+await assert.rejects(saveImage(data,{saveImageToPhotosAlbum:async()=>{throw new Error('permission denied');}}),/permission denied/);
+console.log('PASS: bridge payloads, missing SDK, direct-data fallback, bad temporary path, permission rejection. Mock tests only, not native verification.');

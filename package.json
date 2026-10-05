@@ -1,15 +1,22 @@
 {
   "name": "signal-rig-xhs-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Signal Rig: turn personal photos and one sentence into a small digital installation for Xiaohongshu Agent.",
-  "main": "src/index.js",
+  "description": "Offline Signal Rig photo installation for Xiaohongshu MiniTool",
+  "type": "module",
   "scripts": {
-    "start": "rcb-ff",
-    "check": "node --check src/index.js"
+    "start": "python3 -m http.server 4173 --directory dist",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
+    "pack": "npm run build && npm run check && python3 scripts/package.py",
+    "dev": "vite",
+    "test": "node scripts/test-save.mjs"
   },
   "dependencies": {
-    "@vectorx/agent-runtime": ">=0.3.0",
-    "@vectorx/functions-framework": ">=1.0.0"
+    "three": "0.160.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "vite": "^6.4.1"
   }
 }
