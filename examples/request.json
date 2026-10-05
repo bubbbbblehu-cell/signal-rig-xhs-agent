@@ -1,0 +1,10 @@
+{
+  "text": "最近在清迈住了一阵子，白天很热，晚上骑车，感觉生活像被拆成很多短短信号。",
+  "images": [
+    "https://example.com/photo-1.jpg",
+    "https://example.com/photo-2.jpg",
+    "https://example.com/photo-3.jpg",
+    "https://example.com/photo-4.jpg"
+  ],
+  "mode": "generate"
+}
