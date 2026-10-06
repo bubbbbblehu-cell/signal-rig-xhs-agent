@@ -1,0 +1,31 @@
+name: Deploy Signal Rig preview
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'release/signal-rig-minitool.zip'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Extract the exact MiniTool release
+        run: python3 -m zipfile -e release/signal-rig-minitool.zip _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment
