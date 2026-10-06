@@ -10,7 +10,7 @@
     "check": "node scripts/check.mjs",
     "pack": "npm run build && npm run check && python3 scripts/package.py",
     "dev": "vite",
-    "test": "node scripts/test-save.mjs"
+    "test": "node scripts/test-save.mjs && node scripts/test-photo-slots.mjs"
   },
   "dependencies": {
     "three": "0.160.1"

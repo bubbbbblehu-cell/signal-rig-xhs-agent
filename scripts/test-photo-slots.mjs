@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {placePhotos} from '../app/photo-slots.js';
+const ratios=[16/9,2/3,16/9,16/9,3/5,3/4,3/4,2/3];
+const a={width:1600,height:900},b={width:600,height:900},c={width:800,height:1000};
+const empty=Array(8).fill(null);
+const one=placePhotos(empty,[a],3,false,ratios);
+assert.equal(one.filter(Boolean).length,1);assert.equal(one[3],a);
+const batch=placePhotos(one,[b,c],0,true,ratios);
+assert.equal(batch[3],a);assert.equal(batch.filter(Boolean).length,3);assert.equal(new Set(batch.filter(Boolean)).size,3);
+const replace=placePhotos(batch,[b],3,false,ratios);assert.equal(replace[3],b);assert.equal(replace.filter(Boolean).length,3);
+assert.deepEqual(placePhotos(batch,[],0,true,ratios),batch);
+const eight=Array.from({length:8},()=>({width:400,height:600}));const full=placePhotos(batch,eight,0,true,ratios);assert.equal(new Set(full).size,8);assert(full.every(p=>eight.includes(p)));
+console.log('PASS: single photo fills only selected screen; batch fills empty screens first, never repeats photos; replacement and cancellation.');
