@@ -1,3 +1,4 @@
+import {batchStaticRig} from './batch-rig.js';
 import {saveImage} from './save-image.js';
 import {SoftwareRenderer} from './software-renderer.js';
 import {Scene,PerspectiveCamera,WebGLRenderer,AmbientLight,DirectionalLight,Group,CanvasTexture,SRGBColorSpace,MeshBasicMaterial,Raycaster,Vector2,Box3,Vector3} from 'three';
@@ -7,7 +8,9 @@ const $=id=>document.getElementById(id);
 const viewport=$('viewport'),picker=$('photos'),status=$('status');
 const ratios=[16/9,2/3,16/9,16/9,3/5,3/4,3/4,2/3];
 let renderer,scene,camera,controls,rig,model,screenMeshes=[],textures=[],images=Array(8).fill(null),pool=[],target=0,busy=false,outputData='',previousFocus=null,frame=0;
-const reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let quality=1,slowFrames=0,exporting=false;
+function enterFlatMode(){cancelAnimationFrame(frame);if(renderer)renderer.dispose();renderer=null;viewport.hidden=true;renderFallback();announce('已切换轻量模式，照片仍可编辑和保存');}
+function pixelRatio(w,h){return renderer.isSoftwareRenderer?1:Math.min(window.devicePixelRatio||1,quality===1?1.5:1,Math.sqrt((quality===1?2000000:1000000)/(w*h)));}
 const buttons=CHANNELS.map((name,i)=>{const b=document.createElement('button');b.className='channel';b.type='button';b.textContent=String(i+1).padStart(2,'0');b.setAttribute('aria-label','屏幕 '+(i+1)+'，上传照片');b.addEventListener('click',()=>choose(i));$('channels').appendChild(b);return b;});
 function announce(text){status.textContent=text;}
 function choose(index){if(busy)return;target=index;buttons.forEach((b,i)=>b.classList.toggle('selected',i===index));picker.value='';picker.click();}
@@ -23,19 +26,22 @@ function updateScreens(){
  outputData='';if(!renderer)renderFallback();draw();
 }
 function renderFallback(){const holder=$('fallback');holder.hidden=false;holder.textContent='';images.forEach((photo,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','屏幕 '+(i+1)+'，上传照片');const img=document.createElement('img');img.src=canvasFor(i,photo).toDataURL('image/jpeg',.8);img.alt='屏幕 '+(i+1);b.appendChild(img);b.addEventListener('click',()=>choose(i));holder.appendChild(b);});}
-function draw(){if(renderer&&scene)renderer.render(scene,camera);}
+function draw(){if(!renderer||!scene||document.hidden&&!exporting)return;const start=performance.now();renderer.render(scene,camera);if(exporting)return;if(performance.now()-start>45)slowFrames++;else slowFrames=Math.max(0,slowFrames-1);if(slowFrames>=12){slowFrames=0;if(quality===1){quality=0;model.traverse(o=>{if(o.isMesh&&['Optical clear acrylic','White silver display light'].includes(o.material.name))o.visible=false;});resize();}else enterFlatMode();}}
 function fitCamera(aspect){const v=aspect<.85?1.14:1.05;const size=new Box3().setFromObject(rig).getSize(new Vector3());const distance=Math.max(size.y/(2*Math.tan(Math.PI*40/360)),size.x/(2*Math.tan(Math.PI*40/360)*aspect))*v;camera.position.set(0,.12,distance+size.z*.35);camera.lookAt(0,0,0);camera.updateProjectionMatrix();}
-function resize(){if(!renderer)return;const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;fitCamera(camera.aspect);controls.update();draw();}
+function resize(){if(!renderer)return;const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setPixelRatio(pixelRatio(w,h));renderer.setSize(w,h);camera.aspect=w/h;fitCamera(camera.aspect);controls.update();draw();}
 function resetView(){if(!rig)return;rig.rotation.set(.02,Math.PI,0);controls.target.set(0,0,0);resize();outputData='';}
 function init(){
- try{try{renderer=new WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true,powerPreference:'default'});}catch(webglError){renderer=new SoftwareRenderer();}renderer.setPixelRatio(renderer.isSoftwareRenderer?1:Math.min(window.devicePixelRatio||1,1.65));renderer.outputColorSpace=SRGBColorSpace;viewport.appendChild(renderer.domElement);
+ try{try{renderer=new WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true,powerPreference:'default'});}catch(webglError){renderer=new SoftwareRenderer();}renderer.setPixelRatio(renderer.isSoftwareRenderer?1:1);renderer.outputColorSpace=SRGBColorSpace;viewport.appendChild(renderer.domElement);
  scene=new Scene();camera=new PerspectiveCamera(40,1,.1,100);scene.add(new AmbientLight('#e7edf2',1.35));[[5,8,9,2.8,'#ffffff'],[-8,2,5,1.8,'#b8c9d8'],[1,-7,-4,2,'#f4f7fa']].forEach(a=>{const l=new DirectionalLight(a[4],a[3]);l.position.set(a[0],a[1],a[2]);scene.add(l);});
  model=restoreRig();rig=new Group();rig.add(model);rig.rotation.set(.02,Math.PI,0);scene.add(rig);const center=new Box3().setFromObject(rig).getCenter(new Vector3());rig.position.sub(center);
  screenMeshes=CHANNELS.map(name=>{const mesh=model.getObjectByName(name+'_project_photo');mesh.material=new MeshBasicMaterial({toneMapped:false});return mesh;});
+ if(!renderer.isSoftwareRenderer)batchStaticRig(model);
  controls=new OrbitControls(camera,renderer.domElement);controls.enablePan=false;controls.enableZoom=false;controls.enableDamping=false;controls.minPolarAngle=Math.PI*.30;controls.maxPolarAngle=Math.PI*.70;controls.rotateSpeed=.55;controls.addEventListener('change',()=>{outputData='';cancelAnimationFrame(frame);frame=requestAnimationFrame(draw);});
  let down=null;renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});
- renderer.domElement.addEventListener('pointerup',e=>{if(!down)return;const delta=Math.hypot(e.clientX-down.x,e.clientY-down.y);down=null;if(delta>7)return;const r=renderer.domElement.getBoundingClientRect();const ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hits=ray.intersectObjects(model.children,true).filter(h=>h.object.visible&&!h.object.name.includes('acrylic')&&!h.object.name.includes('clear'));if(!hits.length)return;let o=hits[0].object;while(o){const i=CHANNELS.indexOf(o.name);if(i>=0){choose(i);return;}o=o.parent;}});
- renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();cancelAnimationFrame(frame);viewport.hidden=true;renderer=null;renderFallback();announce('3D 暂不可用，已切换平面模式，照片仍可编辑和保存');});
+ renderer.domElement.addEventListener('pointerup',e=>{if(!down)return;const delta=Math.hypot(e.clientX-down.x,e.clientY-down.y);down=null;if(delta>7)return;const r=renderer.domElement.getBoundingClientRect();const ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hits=ray.intersectObjects(model.children,true).filter(h=>!h.object.userData.renderBatch&&(h.object.visible||h.object.userData.batchSource)&&!h.object.name.includes('acrylic')&&!h.object.name.includes('clear'));if(!hits.length)return;let o=hits[0].object;while(o){const i=CHANNELS.indexOf(o.name);if(i>=0){choose(i);return;}o=o.parent;}});
+ renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();enterFlatMode();});
+ document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(frame);if(!document.hidden)draw();});
+ renderer.domElement.addEventListener('webglcontextrestored',()=>{if(renderer)resize();});
  window.addEventListener('resize',resize);resize();updateScreens();
  }catch(error){console.error('Signal Rig initialization failed:',error);if(renderer)renderer.dispose();renderer=null;viewport.hidden=true;renderFallback();announce('当前设备使用平面模式 · 点击屏幕放入照片');}
 }
@@ -51,7 +57,7 @@ $('reset-view').addEventListener('click',resetView);
 function poster(){
  const c=document.createElement('canvas');c.width=1200;c.height=1600;const x=c.getContext('2d');x.fillStyle='#1e2522';x.fillRect(0,0,1200,1600);x.strokeStyle='rgba(170,195,170,.065)';for(let n=0;n<1600;n+=40){x.beginPath();x.moveTo(0,n);x.lineTo(1200,n);x.stroke();x.beginPath();x.moveTo(n,0);x.lineTo(n,1600);x.stroke();}const g=x.createRadialGradient(600,730,0,600,730,670);g.addColorStop(0,'rgba(74,96,77,.3)');g.addColorStop(1,'rgba(30,37,34,0)');x.fillStyle=g;x.fillRect(0,0,1200,1600);
  x.fillStyle='#f9ff4c';x.font='42px monospace';x.fillText('SIGNAL RIG',64,93);x.fillStyle='#aeb695';x.font='16px monospace';x.textAlign='right';x.fillText('PHOTO OBJECT / 001',1136,90);x.textAlign='left';
- if(renderer){const oldSize=renderer.getSize(new Vector2()),oldRatio=renderer.getPixelRatio(),oldAspect=camera.aspect,oldPosition=camera.position.clone();try{renderer.setPixelRatio(1);renderer.setSize(1200,1290,false);camera.aspect=1200/1290;const length=oldPosition.length();const size=new Box3().setFromObject(rig).getSize(new Vector3());const distance=Math.max(size.y/(2*Math.tan(Math.PI*40/360)),size.x/(2*Math.tan(Math.PI*40/360)*camera.aspect))*1.1+size.z*.35;camera.position.multiplyScalar(distance/length);camera.updateProjectionMatrix();draw();x.drawImage(renderer.domElement,0,145,1200,1290);}finally{camera.position.copy(oldPosition);camera.aspect=oldAspect;camera.updateProjectionMatrix();renderer.setPixelRatio(oldRatio);renderer.setSize(oldSize.x,oldSize.y,false);draw();}}
+ if(renderer){const oldSize=renderer.getSize(new Vector2()),oldRatio=renderer.getPixelRatio(),oldAspect=camera.aspect,oldPosition=camera.position.clone();try{exporting=true;renderer.setPixelRatio(1);renderer.setSize(1200,1290,false);camera.aspect=1200/1290;const length=oldPosition.length();const size=new Box3().setFromObject(rig).getSize(new Vector3());const distance=Math.max(size.y/(2*Math.tan(Math.PI*40/360)),size.x/(2*Math.tan(Math.PI*40/360)*camera.aspect))*1.1+size.z*.35;camera.position.multiplyScalar(distance/length);camera.updateProjectionMatrix();draw();x.drawImage(renderer.domElement,0,145,1200,1290);}finally{exporting=false;camera.position.copy(oldPosition);camera.aspect=oldAspect;camera.updateProjectionMatrix();renderer.setPixelRatio(oldRatio);renderer.setSize(oldSize.x,oldSize.y,false);draw();}}
  else{images.forEach((im,i)=>{const col=i%3,row=Math.floor(i/3);const p=canvasFor(i,im);x.drawImage(p,90+col*350,210+row*380,300,330);});}
  x.strokeStyle='rgba(249,255,76,.2)';x.beginPath();x.moveTo(64,1460);x.lineTo(1136,1460);x.stroke();x.fillStyle='#aeb695';x.font='18px monospace';x.fillText('08 CHANNELS / YOUR PERSONAL FREQUENCY',64,1510);x.font='14px monospace';x.fillText('A SMALL COLLECTION OF THINGS YOU SEE.',64,1545);return c.toDataURL('image/png');
 }
