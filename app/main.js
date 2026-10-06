@@ -11,12 +11,24 @@ const viewport=$('viewport'),picker=$('photos'),status=$('status');
 const ratios=[16/9,2/3,16/9,16/9,3/5,3/4,3/4,2/3];
 let renderer,scene,camera,controls,rig,model,screenMeshes=[],textures=[],images=Array(8).fill(null),pool=[],target=0,busy=false,outputData='',previousFocus=null,frame=0;
 let quality=1,slowFrames=0,exporting=false,batchMode=false,theme=THEMES[0];
-const themeButtons=THEMES.map((item,i)=>{const b=document.createElement('button');b.type='button';b.className='theme-choice';b.textContent=item.name;b.style.setProperty('--swatch',item.paper);b.setAttribute('aria-label',item.name+'背景');b.setAttribute('aria-pressed',String(i===0));b.addEventListener('click',()=>{theme=item;for(const key of ['paper','ink','muted','line','glow','grid'])document.documentElement.style.setProperty('--'+key,item[key]);document.documentElement.style.colorScheme=item.mode;themeButtons.forEach((button,j)=>button.setAttribute('aria-pressed',String(i===j)));outputData='';announce('已切换'+item.name+'背景 · 生成图片会使用此背景');});$('themes').appendChild(b);return b;});
-function enterFlatMode(){cancelAnimationFrame(frame);if(renderer)renderer.dispose();renderer=null;viewport.hidden=true;renderFallback();announce('已切换轻量模式，照片仍可编辑和保存');}
+let rotationFrame=0,lastRotation=0,pauseUntil=0,dragging=false;
+let rotating=!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+function rotationLabel(){const b=$('rotation-toggle');b.textContent=rotating?'暂停旋转':'自动旋转';b.setAttribute('aria-label',b.textContent);b.setAttribute('aria-pressed',String(rotating));}
+function animateRotation(time){
+ rotationFrame=0;if(!renderer||document.hidden)return;
+ if(!lastRotation)lastRotation=time;
+ const elapsed=time-lastRotation;
+ if(elapsed>=1000/30){lastRotation=time;if(rotating&&!dragging&&!busy&&Date.now()>pauseUntil&&$('output').hidden&&!$('more-tools').open){controls.autoRotate=true;controls.update(Math.min(elapsed/1000,.1));controls.autoRotate=false;}}
+ rotationFrame=requestAnimationFrame(animateRotation);
+}
+function startRotation(){cancelAnimationFrame(rotationFrame);lastRotation=0;if(renderer&&!document.hidden)rotationFrame=requestAnimationFrame(animateRotation);}
+$('rotation-toggle').addEventListener('click',()=>{rotating=!rotating;rotationLabel();});rotationLabel();
+const themeButtons=THEMES.map((item,i)=>{const b=document.createElement('button');b.type='button';b.className='theme-choice';b.textContent=item.name;b.style.setProperty('--swatch',item.paper);b.setAttribute('aria-label',item.name+'背景');b.setAttribute('aria-pressed',String(i===0));b.addEventListener('click',()=>{theme=item;for(const key of ['paper','ink','muted','line','glow','grid'])document.documentElement.style.setProperty('--'+key,item[key]);document.documentElement.style.colorScheme=item.mode;themeButtons.forEach((button,j)=>button.setAttribute('aria-pressed',String(i===j)));outputData='';announce('已切换'+item.name+'背景');});$('themes').appendChild(b);return b;});
+function enterFlatMode(){cancelAnimationFrame(rotationFrame);cancelAnimationFrame(frame);if(renderer)renderer.dispose();renderer=null;viewport.hidden=true;renderFallback();announce('已切换轻量模式，照片仍可编辑和保存');}
 function pixelRatio(w,h){return renderer.isSoftwareRenderer?1:Math.min(window.devicePixelRatio||1,quality===1?1.5:1,Math.sqrt((quality===1?2000000:1000000)/(w*h)));}
 const buttons=CHANNELS.map((name,i)=>{const b=document.createElement('button');b.className='channel';b.type='button';b.textContent=String(i+1).padStart(2,'0');b.setAttribute('aria-label','屏幕 '+(i+1)+'，上传照片');b.addEventListener('click',()=>choose(i));$('channels').appendChild(b);return b;});
 function announce(text){status.textContent=text;}
-function choose(index){if(busy)return;batchMode=false;picker.multiple=false;target=index;buttons.forEach((b,i)=>b.classList.toggle('selected',i===index));picker.value='';picker.click();}
+function choose(index){if(busy)return;pauseUntil=Date.now()+3000;batchMode=false;picker.multiple=false;target=index;buttons.forEach((b,i)=>b.classList.toggle('selected',i===index));picker.value='';picker.click();}
 function canvasFor(index,photo){
  const c=document.createElement('canvas');c.width=Math.round(768*Math.min(ratios[index],1));c.height=Math.round(c.width/ratios[index]);const x=c.getContext('2d');
  if(photo){const scale=Math.max(c.width/photo.width,c.height/photo.height);x.drawImage(photo,(c.width-photo.width*scale)/2,(c.height-photo.height*scale)/2,photo.width*scale,photo.height*scale);}
@@ -30,7 +42,7 @@ function updateScreens(){
 }
 function renderFallback(){const holder=$('fallback');holder.hidden=false;holder.textContent='';images.forEach((photo,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','屏幕 '+(i+1)+'，上传照片');const img=document.createElement('img');img.src=canvasFor(i,photo).toDataURL('image/jpeg',.8);img.alt='屏幕 '+(i+1);b.appendChild(img);b.addEventListener('click',()=>choose(i));holder.appendChild(b);});}
 function draw(){if(!renderer||!scene||document.hidden&&!exporting)return;const start=performance.now();renderer.render(scene,camera);if(exporting)return;if(performance.now()-start>45)slowFrames++;else slowFrames=Math.max(0,slowFrames-1);if(slowFrames>=12){slowFrames=0;if(quality===1){quality=0;model.traverse(o=>{if(o.isMesh&&['Optical clear acrylic','White silver display light'].includes(o.material.name))o.visible=false;});resize();}else enterFlatMode();}}
-function fitCamera(aspect){const v=aspect<.85?1.14:1.05;const size=new Box3().setFromObject(rig).getSize(new Vector3());const distance=Math.max(size.y/(2*Math.tan(Math.PI*40/360)),size.x/(2*Math.tan(Math.PI*40/360)*aspect))*v;camera.position.set(0,.12,distance+size.z*.35);camera.lookAt(0,0,0);camera.updateProjectionMatrix();}
+function fitCamera(aspect){const v=1.01;const size=new Box3().setFromObject(rig).getSize(new Vector3());const distance=Math.max(size.y/(2*Math.tan(Math.PI*40/360)),size.x/(2*Math.tan(Math.PI*40/360)*aspect))*v;camera.position.set(0,.12,distance+size.z*.35);camera.lookAt(0,0,0);camera.updateProjectionMatrix();}
 function resize(){if(!renderer)return;const w=viewport.clientWidth,h=viewport.clientHeight;renderer.setPixelRatio(pixelRatio(w,h));renderer.setSize(w,h);camera.aspect=w/h;fitCamera(camera.aspect);controls.update();draw();}
 function resetView(){if(!rig)return;rig.rotation.set(.02,Math.PI,0);controls.target.set(0,0,0);resize();outputData='';}
 function init(){
@@ -39,13 +51,13 @@ function init(){
  model=restoreRig();rig=new Group();rig.add(model);rig.rotation.set(.02,Math.PI,0);scene.add(rig);const center=new Box3().setFromObject(rig).getCenter(new Vector3());rig.position.sub(center);
  screenMeshes=CHANNELS.map(name=>{const mesh=model.getObjectByName(name+'_project_photo');mesh.material=new MeshBasicMaterial({toneMapped:false});return mesh;});
  if(!renderer.isSoftwareRenderer)batchStaticRig(model);
- controls=new OrbitControls(camera,renderer.domElement);controls.enablePan=false;controls.enableZoom=false;controls.enableDamping=false;controls.minPolarAngle=Math.PI*.30;controls.maxPolarAngle=Math.PI*.70;controls.rotateSpeed=.55;controls.addEventListener('change',()=>{outputData='';cancelAnimationFrame(frame);frame=requestAnimationFrame(draw);});
+ controls=new OrbitControls(camera,renderer.domElement);controls.enablePan=false;controls.enableZoom=false;controls.enableDamping=false;controls.minPolarAngle=Math.PI*.30;controls.maxPolarAngle=Math.PI*.70;controls.rotateSpeed=.55;controls.autoRotateSpeed=.65;controls.addEventListener('start',()=>{dragging=true;});controls.addEventListener('end',()=>{dragging=false;pauseUntil=Date.now()+2500;});controls.addEventListener('change',()=>{outputData='';cancelAnimationFrame(frame);frame=requestAnimationFrame(draw);});
  let down=null;renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});
  renderer.domElement.addEventListener('pointerup',e=>{if(!down)return;const delta=Math.hypot(e.clientX-down.x,e.clientY-down.y);down=null;if(delta>7)return;const r=renderer.domElement.getBoundingClientRect();const ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hits=ray.intersectObjects(model.children,true).filter(h=>!h.object.userData.renderBatch&&(h.object.visible||h.object.userData.batchSource)&&!h.object.name.includes('acrylic')&&!h.object.name.includes('clear'));if(!hits.length)return;let o=hits[0].object;while(o){const i=CHANNELS.indexOf(o.name);if(i>=0){choose(i);return;}o=o.parent;}});
  renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();enterFlatMode();});
- document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(frame);if(!document.hidden)draw();});
+ document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(frame);cancelAnimationFrame(rotationFrame);if(!document.hidden){draw();startRotation();}});
  renderer.domElement.addEventListener('webglcontextrestored',()=>{if(renderer)resize();});
- window.addEventListener('resize',resize);resize();updateScreens();
+ window.addEventListener('resize',resize);resize();updateScreens();startRotation();
  }catch(error){console.error('Signal Rig initialization failed:',error);if(renderer)renderer.dispose();renderer=null;viewport.hidden=true;renderFallback();announce('当前设备使用平面模式 · 点击屏幕放入照片');}
 }
 function decode(file){return new Promise((resolve,reject)=>{if(!/^image\//.test(file.type)&&!(/\.(jpe?g|png|webp|gif|heic|avif)$/i.test(file.name)))return reject(new Error('请选择图片文件'));if(file.size>25*1024*1024)return reject(new Error('单张图片请小于 25MB'));const reader=new FileReader();reader.onerror=()=>reject(new Error('照片读取失败'));reader.onload=()=>{const im=new Image();im.onerror=()=>reject(new Error('无法读取这张照片，请尝试 JPG 或 PNG'));im.onload=()=>{try{const c=document.createElement('canvas');const scale=Math.min(1,1280/Math.max(im.naturalWidth,im.naturalHeight));c.width=Math.max(1,Math.round(im.naturalWidth*scale));c.height=Math.max(1,Math.round(im.naturalHeight*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c);}catch(e){reject(new Error('照片太大，无法处理'));}};im.src=reader.result;};reader.readAsDataURL(file);});}
@@ -53,7 +65,7 @@ function busyState(on){busy=on;['shuffle','build','save','save-output','upload-b
 picker.addEventListener('change',async()=>{const files=Array.from(picker.files||[]).slice(0,batchMode?8:1);if(!files.length)return;busyState(true);announce('正在把照片接入装置…');const loaded=[],errors=[];for(const file of files){try{loaded.push(await decode(file));}catch(e){errors.push(e.message);}}
  if(loaded.length){images=placePhotos(images,loaded,target,batchMode,ratios);pool=images.filter(Boolean);updateScreens();announce('已放入 '+loaded.length+' 张照片'+(errors.length?'；'+errors[0]:' · 一张照片对应一个屏幕'));}
  else announce(errors[0]||'未能读取照片');busyState(false);});
-$('upload-batch').addEventListener('click',()=>{if(busy)return;batchMode=true;picker.multiple=true;picker.value='';announce('最多选择 8 张 · 优先填空屏，放满后替换原照片');picker.click();});
+$('upload-batch').addEventListener('click',()=>{if(busy)return;pauseUntil=Date.now()+3000;batchMode=true;picker.multiple=true;picker.value='';announce('最多选择 8 张 · 优先填空屏，放满后替换原照片');picker.click();});
 $('shuffle').addEventListener('click',()=>{if(!pool.length){choose(0);return;}const prev=images.slice();for(let i=images.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));const tmp=images[i];images[i]=images[j];images[j]=tmp;}if(images.every((im,i)=>im===prev[i]))images.push(images.shift());updateScreens();announce('照片已重新分配 · 一张照片对应一个屏幕');});
 $('reset-view').addEventListener('click',resetView);
 function poster(){
@@ -63,7 +75,7 @@ function poster(){
  else{images.forEach((im,i)=>{const col=i%3,row=Math.floor(i/3);const p=canvasFor(i,im);x.drawImage(p,90+col*350,210+row*380,300,330);});}
  x.strokeStyle=theme.line;x.beginPath();x.moveTo(64,1460);x.lineTo(1136,1460);x.stroke();x.fillStyle=theme.muted;x.font='18px monospace';x.fillText('08 CHANNELS / YOUR PERSONAL FREQUENCY',64,1510);x.font='14px monospace';x.fillText('A SMALL COLLECTION OF THINGS YOU SEE.',64,1545);return c.toDataURL('image/png');
 }
-function openOutput(){if(busy)return false;if(!pool.length){announce('先放入至少一张照片，再生成你的装置');choose(0);return false;}try{outputData=poster();$('output-image').src=outputData;previousFocus=document.activeElement;$('output').hidden=false;document.body.style.overflow='hidden';$('save-status').textContent='';$('close-output').focus();return true;}catch(e){announce('图片生成失败，请减少照片大小后重试');return false;}}
+function openOutput(){if(busy)return false;$('more-tools').open=false;if(!pool.length){announce('先放入至少一张照片，再生成你的装置');choose(0);return false;}try{outputData=poster();$('output-image').src=outputData;previousFocus=document.activeElement;$('output').hidden=false;document.body.style.overflow='hidden';$('save-status').textContent='';$('close-output').focus();return true;}catch(e){announce('图片生成失败，请减少照片大小后重试');return false;}}
 function closeOutput(){$('output').hidden=true;document.body.style.overflow='';if(previousFocus)previousFocus.focus();}
 async function save(){if(busy)return;if(!outputData&&!openOutput())return;const mini=window.xhs&&window.xhs.miniTool;if(!mini||typeof mini.saveImageToPhotosAlbum!=='function'){$('output').hidden=false;$('save-status').textContent='浏览器预览：右键或长按图片保存。小红书内点击此按钮会保存到相册。';return;}busyState(true);$('save-status').textContent='正在保存…';try{await saveImage(outputData,mini);$('save-status').textContent='已保存到相册';announce('装置图片已保存到相册');}catch(e){$('save-status').textContent='未保存成功，请检查相册权限后重试。你的照片仍在。';}finally{busyState(false);}}
 $('build').addEventListener('click',openOutput);$('save').addEventListener('click',()=>{if(openOutput())save();});$('save-output').addEventListener('click',save);$('close-output').addEventListener('click',closeOutput);$('edit').addEventListener('click',closeOutput);

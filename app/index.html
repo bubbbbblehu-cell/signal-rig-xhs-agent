@@ -9,20 +9,21 @@
 </head>
 <body>
 <main id="studio">
-<header class="masthead"><div class="wordmark">SIGNAL <i>RIG</i></div><span class="edition">PHOTO OBJECT / 001</span></header>
 <section class="stage" aria-label="可旋转的八屏照片装置">
-<div class="stage-mark">MULTI-FACE<br>SIGNAL OBJECT</div>
 <div id="viewport" aria-label="拖动旋转装置，点击屏幕选照片"></div>
 <div id="fallback" hidden></div>
-<div class="stage-foot"><span id="count">00 / 08 PHOTOS</span><button id="reset-view" type="button">↺ 正面</button></div>
 </section>
 <section class="controls" aria-label="装置操作">
-<p id="status" role="status" aria-live="polite">点击任意屏幕放入照片 · 拖动旋转</p>
-<div id="channels" class="channels" aria-label="选择屏幕上传照片"></div>
-<button id="upload-batch" type="button">＋ 批量上传照片 <small>最多 8 张 · 优先填空屏</small></button>
+<p id="status" role="status" aria-live="polite">点屏幕放照片</p>
+<div class="toolbar">
+<button id="upload-batch" type="button">＋ 批量上传</button>
+<button id="rotation-toggle" type="button" aria-label="暂停自动旋转" aria-pressed="true">暂停旋转</button>
+<details id="more-tools"><summary aria-label="更多操作">···</summary><div class="tool-panel">
 <div id="themes" class="themes" role="group" aria-label="背景颜色"></div>
-<div class="actions"><button id="shuffle" type="button"><span>SHUFFLE</span><small>打乱照片</small></button><button id="build" type="button"><span>BUILD</span><small>生成装置图</small></button><button id="save" class="primary" type="button"><span>SAVE</span><small>保存图片</small></button></div>
-<p class="privacy">照片只在你的设备上处理</p>
+<div class="actions"><button id="shuffle" type="button">打乱</button><button id="reset-view" type="button">正面</button><button id="build" type="button">生成图片</button><button id="save" type="button">保存</button></div>
+</div></details>
+</div>
+<div id="channels" hidden></div><span id="count" hidden></span>
 </section>
 </main>
 <input id="photos" type="file" accept="image/*" hidden>
